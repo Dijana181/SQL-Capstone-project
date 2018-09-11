@@ -1,0 +1,240 @@
+SELECT *
+FROM subscriptions
+LIMIT 100 
+ ;
+ 
+ --discover the different segments of users
+SELECT DISTINCT segment
+FROM subscriptions
+;
+
+-- calculate the range of months 
+--check 1 enough data during first month for total subscriptions 
+--check 2 enough data during last month for cancellations by end of month 
+SELECT MIN(subscription_start), MAX(subscription_start), 
+       MIN(subscription_end), MAX(subscription_end)
+FROM subscriptions
+;
+
+--count number of users in each section
+SELECT segment, COUNT(*) as Total_users
+FROM subscriptions
+WHERE segment = 30
+;
+SELECT segment, COUNT(*) as Total_users
+FROM subscriptions
+WHERE segment = 87
+;
+
+--overall churn rate at Codeflix
+SELECT ROUND(1.0 * 
+( SELECT COUNT(*)
+  FROM subscriptions
+  WHERE subscription_start < '2017-01-01' 
+  AND (subscription_end
+    BETWEEN '2017-01-01'
+    AND '2017-03-31'
+  )) / (
+SELECT COUNT(*)
+FROM subscriptions
+WHERE subscription_start < '2017-01-01' 
+AND ((subscription_end >= '2017-01-01') 
+  OR (subscription_end IS NULL) 
+)),2) AS Overall_Churn_Rate
+;
+
+--calculate churn rate each month
+WITH months AS (
+SELECT
+  '2017-01-01' as first_day,
+  '2017-01-31' as last_day
+ UNION 
+ SELECT 
+  '2017-02-01' as first_day, 
+  '2017-02-28' as last_day
+ UNION
+ SELECT 
+  '2017-03-01' as first_day,
+  '2017-03-31' as last_day
+  ),
+cross_join AS (
+ SELECT *
+ FROM subscriptions
+ CROSS JOIN months
+ ),
+ status AS (
+ SELECT 
+   id, 
+   first_day as month,
+   CASE 
+     WHEN subscription_start < first_day  
+          AND 
+          (subscription_end >= first_day 
+          OR subscription_end IS NULL)                                  
+                 THEN 1
+                 ELSE 0
+                 END as is_active
+   ,
+   CASE 
+     WHEN  subscription_end 
+          BETWEEN first_day
+          AND last_day
+          THEN 1
+          ELSE 0
+          END as is_canceled
+    FROM cross_join)
+ ,
+   status_aggregate AS (
+   SELECT 
+   month,
+   SUM(is_active) as sum_active,
+   SUM(is_canceled) as sum_canceled
+   FROM status
+   GROUP BY 1)
+   
+  SELECT
+   month, 
+   ROUND(1.0 * sum_canceled / sum_active,2)
+   as Churn_Rate_Each_Month
+   FROM status_aggregate
+ ;
+ 
+ --calculate churn by segment each month
+WITH months AS(
+SELECT
+  '2017-01-01' as first_day,
+  '2017-01-31' as last_day
+ UNION 
+ SELECT 
+  '2017-02-01' as first_day, 
+  '2017-02-28' as last_day
+ UNION
+ SELECT 
+  '2017-03-01' as first_day,
+  '2017-03-31' as last_day
+  ),
+cross_join AS (
+ SELECT *
+ FROM subscriptions
+ CROSS JOIN months
+ ),
+ status AS (
+ SELECT 
+   id, 
+   first_day as month,
+   CASE 
+     WHEN (segment = 87) 
+          AND 
+          (subscription_start < first_day)  
+          AND 
+          (subscription_end >= first_day 
+          OR subscription_end IS NULL)                                  
+                 THEN 1
+                 ELSE 0
+                 END as is_active_87
+   ,
+   CASE
+      WHEN (segment = 30) 
+           AND 
+           (subscription_start < first_day)
+           AND (subscription_end >= first_day 
+           OR subscription_end IS NULL)                            
+                 THEN 1
+                 ELSE 0
+                 END as is_active_30
+   ,
+   CASE 
+     WHEN segment = 87 
+          AND 
+          (subscription_end 
+          BETWEEN first_day AND last_day)
+          THEN 1
+          ELSE 0
+          END as is_canceled_87
+   ,
+   CASE 
+     WHEN segment = 30 
+          AND 
+          (subscription_end 
+          BETWEEN first_day AND last_day)
+          THEN 1
+          ELSE 0
+          END as is_canceled_30
+    FROM cross_join)
+ ,
+   status_aggregate AS (
+   SELECT 
+   month,
+   SUM(is_active_87) as sum_active_87,
+   SUM(is_active_30) as sum_active_30,
+   SUM(is_canceled_87) as sum_canceled_87,
+   SUM(is_canceled_30) as sum_canceled_30
+   FROM status
+   GROUP BY month)
+   
+  SELECT
+   month, 
+   ROUND(1.0 * sum_canceled_87 / sum_active_87,2)
+   as churn_rate_87, 
+   ROUND(1.0 * sum_canceled_30 / sum_active_30,2)
+   as churn_rate_30
+   FROM status_aggregate
+ ;
+ 
+--calculate churn rate for more segments
+WITH months AS (
+SELECT
+  '2017-01-01' as first_day,
+  '2017-01-31' as last_day
+ UNION 
+ SELECT 
+  '2017-02-01' as first_day, 
+  '2017-02-28' as last_day
+ UNION
+ SELECT 
+  '2017-03-01' as first_day,
+  '2017-03-31' as last_day
+  ),
+cross_join AS (
+ SELECT *
+ FROM subscriptions
+ CROSS JOIN months
+ ),
+ status AS (
+ SELECT 
+   id, 
+   first_day as month,
+   CASE 
+     WHEN subscription_start < first_day  
+          AND 
+          (subscription_end >= first_day 
+          OR subscription_end IS NULL)                                  
+                 THEN 1
+                 ELSE 0
+                 END as is_active
+   ,
+   CASE 
+     WHEN  subscription_end 
+          BETWEEN first_day
+          AND last_day
+          THEN 1
+          ELSE 0
+          END as is_canceled, segment
+    FROM cross_join)
+ ,
+status_aggregate AS (
+SELECT month, 
+  SUM(is_active) as active, 
+  SUM(is_canceled) as canceled, 
+  segment
+FROM status
+GROUP BY 4, 1)
+ 
+SELECT 
+ month, 
+ segment, 
+ ROUND(1.0 * canceled/active,2) as churn_rate
+FROM status_aggregate
+;
+
+
